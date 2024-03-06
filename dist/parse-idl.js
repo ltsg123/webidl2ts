@@ -38,13 +38,18 @@ var __generator = (this && this.__generator) || function (thisArg, body) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.parseIDL = void 0;
 var webidl2 = require("webidl2");
+var logger_1 = require("./logger");
 function parseIDL(idlString, options) {
     return __awaiter(this, void 0, void 0, function () {
+        var parsedIdl;
         return __generator(this, function (_a) {
             if (options === null || options === void 0 ? void 0 : options.preprocess) {
                 idlString = options.preprocess(idlString);
             }
-            return [2 /*return*/, webidl2.parse(idlString)];
+            parsedIdl = webidl2.parse(idlString);
+            logger_1.logger.debug('parsedIdl');
+            logger_1.logger.debug(JSON.stringify(parsedIdl));
+            return [2 /*return*/, parsedIdl];
         });
     });
 }

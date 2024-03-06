@@ -1,6 +1,7 @@
 import * as https from 'https'
 import * as fs from 'fs'
 import { JSDOM } from 'jsdom'
+import * as path from 'path'
 
 const idlSelector = [
   'pre.idl:not(.extract):not(.example)', // bikeshed and ReSpec
@@ -9,6 +10,22 @@ const idlSelector = [
   '#permission-registry + pre.highlight', // Permissions
 ].join(',')
 
+export function isDirectoryUrl(url: string): boolean {
+  return url.endsWith('/')
+}
+
+export function findFileNames(directory: string): string[] {
+  const files = []
+  fs.readdirSync(directory).forEach((file) => {
+    const filePath = path.join(directory, file)
+    const stats = fs.statSync(filePath)
+    if (stats.isFile()) {
+      files.push(path.basename(filePath, path.extname(filePath)))
+    }
+  })
+  return files
+}
+
 export async function fetchIDL(uri: string): Promise<string> {
   let result: string
   if (fs.existsSync(uri)) {
@@ -16,7 +33,7 @@ export async function fetchIDL(uri: string): Promise<string> {
   } else {
     result = await getUrl(uri)
   }
-  if (uri.match(/\.w?idl$/)) {
+  if (uri.match(/\.(web)?idl$/)) {
     return result
   }
   return extractIDL(JSDOM.fragment(result))

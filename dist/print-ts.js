@@ -9,10 +9,15 @@ var __spreadArrays = (this && this.__spreadArrays) || function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.printEmscriptenModule = exports.printTs = void 0;
 var ts = require("typescript");
+var ts_helper_1 = require("./ts-helper");
 function printTs(nodes) {
     var file = ts.createSourceFile("index.d.ts", '', ts.ScriptTarget.Latest, false, ts.ScriptKind.TS);
     var printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
-    return nodes.map(function (it) { return printer.printNode(ts.EmitHint.Unspecified, it, file); }).join('\n');
+    var tsString = nodes.map(function (it) { return printer.printNode(ts.EmitHint.Unspecified, it, file); }).join('\n');
+    // add exports
+    var exportedString = ts_helper_1.getExports(nodes.map(function (node) { var _a; return (_a = node === null || node === void 0 ? void 0 : node['name']) === null || _a === void 0 ? void 0 : _a['escapedText']; }));
+    exportedString && (tsString = tsString.concat('\n\n').concat(exportedString));
+    return tsString;
 }
 exports.printTs = printTs;
 function printEmscriptenModule(moduleName, nodes, defaultExport) {

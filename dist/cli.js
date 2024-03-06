@@ -37,6 +37,7 @@ var __generator = (this && this.__generator) || function (thisArg, body) {
     }
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.convert = exports.convertMap = void 0;
 var yargs = require("yargs");
 var parse_idl_1 = require("./parse-idl");
 var convert_idl_1 = require("./convert-idl");
@@ -44,9 +45,15 @@ var print_ts_1 = require("./print-ts");
 var fs = require("fs");
 var fetch_idl_1 = require("./fetch-idl");
 var fixes_1 = require("./fixes");
+var logger_1 = require("./logger");
+var path = require("path");
+/**
+ * cache convert
+ */
+exports.convertMap = new Map();
 function main() {
     return __awaiter(this, void 0, void 0, function () {
-        var argv, options;
+        var argv, options, fileNames, optionsArr;
         return __generator(this, function (_a) {
             argv = yargs
                 .wrap(null)
@@ -87,6 +94,7 @@ function main() {
                 boolean: true,
             }).argv;
             options = {
+                name: '',
                 input: argv.i,
                 output: argv.o,
                 emscripten: argv.e,
@@ -96,19 +104,59 @@ function main() {
             if (!options.input) {
                 process.exit(1);
             }
-            convert(options);
+            if (fetch_idl_1.isDirectoryUrl(options.input)) {
+                if (!fetch_idl_1.isDirectoryUrl(options.output)) {
+                    throw new Error('You should make sure that the input / ouput types are the same (filename / directory)');
+                }
+                else {
+                    fileNames = fetch_idl_1.findFileNames(options.input);
+                    optionsArr = fileNames.map(function (file) {
+                        return Object.assign({}, {
+                            emscripten: argv.e,
+                            defaultExport: argv.d,
+                            module: argv.n,
+                            name: file,
+                            input: options.input + file + '.webidl',
+                            output: options.output + file + '.ts',
+                        });
+                    });
+                    optionsArr.forEach(function (options) {
+                        try {
+                            convert(options);
+                        }
+                        catch (e) {
+                            logger_1.logger.error(options.output + " convert failed");
+                        }
+                    });
+                }
+            }
+            else {
+                options.name = path.basename(options.input, path.extname(options.input));
+                if (fetch_idl_1.isDirectoryUrl(options.output)) {
+                    options.output = options.output + options.name + '.ts';
+                }
+                convert(options);
+            }
             return [2 /*return*/];
         });
     });
 }
 function convert(options) {
     return __awaiter(this, void 0, void 0, function () {
-        var idlString, idl, ts, tsString;
+        var idlString, idl, ts, tsString, header;
         return __generator(this, function (_a) {
             switch (_a.label) {
-                case 0: return [4 /*yield*/, fetch_idl_1.fetchIDL(options.input)];
+                case 0:
+                    if (exports.convertMap.get(options.name)) {
+                        logger_1.logger.debug("has converted, options is " + options);
+                        return [2 /*return*/];
+                    }
+                    exports.convertMap.set(options.name, "// " + options.name);
+                    logger_1.logger.debug("start convert, options is " + JSON.stringify(options));
+                    return [4 /*yield*/, fetch_idl_1.fetchIDL(options.input)];
                 case 1:
                     idlString = _a.sent();
+                    logger_1.logger.debug("start parseIDL, idlString is " + idlString);
                     return [4 /*yield*/, parse_idl_1.parseIDL(idlString, {
                             preprocess: function (idl) {
                                 if (options.emscripten) {
@@ -120,7 +168,9 @@ function convert(options) {
                         })];
                 case 2:
                     idl = _a.sent();
-                    ts = convert_idl_1.convertIDL(idl, options);
+                    return [4 /*yield*/, convert_idl_1.convertIDL(idl, options)];
+                case 3:
+                    ts = _a.sent();
                     tsString = null;
                     if (options.emscripten) {
                         tsString = print_ts_1.printEmscriptenModule(options.module, ts, options.defaultExport);
@@ -128,10 +178,13 @@ function convert(options) {
                     else {
                         tsString = print_ts_1.printTs(ts);
                     }
-                    fs.writeFileSync(options.output, tsString);
+                    header = exports.convertMap.get(options.name);
+                    console.log('result', header);
+                    fs.writeFileSync(options.output, header.concat('\n\n').concat(tsString));
                     return [2 /*return*/];
             }
         });
     });
 }
+exports.convert = convert;
 main();

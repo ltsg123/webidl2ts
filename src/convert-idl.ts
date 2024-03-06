@@ -1,6 +1,10 @@
 import * as webidl2 from 'webidl2'
 import * as ts from 'typescript'
 import { Options } from './types'
+import { convert, convertMap } from './cli'
+import * as fs from 'fs'
+import { logger } from './logger'
+import { getImports, getKeys, isIncludesImportOrExport } from './ts-helper'
 
 const bufferSourceTypes = [
   'ArrayBuffer',
@@ -34,31 +38,34 @@ const baseTypeConversionMap = new Map<string, string>([
   ['VoidPtr', 'unknown'],
 ])
 
-export function convertIDL(rootTypes: webidl2.IDLRootType[], options?: Options): ts.Statement[] {
+export async function convertIDL(rootTypes: webidl2.IDLRootType[], options?: Options): Promise<ts.Statement[]> {
   const nodes: ts.Statement[] = []
   for (const rootType of rootTypes) {
     switch (rootType.type) {
       case 'interface':
       case 'interface mixin':
       case 'dictionary':
-        nodes.push(convertInterface(rootType, options))
-        for (const attr of rootType.extAttrs) {
-          if (attr.name === 'Exposed' && attr.rhs?.value === 'Window') {
-            nodes.push(
-              ts.createVariableStatement(
-                [ts.createModifier(ts.SyntaxKind.DeclareKeyword)],
-                ts.createVariableDeclarationList(
-                  [
-                    ts.createVariableDeclaration(
-                      ts.createIdentifier(rootType.name),
-                      ts.createTypeReferenceNode(ts.createIdentifier(rootType.name), undefined),
-                      undefined,
-                    ),
-                  ],
-                  undefined,
+        {
+          const dictionaryConvert = await convertInterface(rootType, options)
+          nodes.push(dictionaryConvert)
+          for (const attr of rootType.extAttrs) {
+            if (attr.name === 'Exposed' && attr.rhs?.value === 'Window') {
+              nodes.push(
+                ts.createVariableStatement(
+                  [ts.createModifier(ts.SyntaxKind.DeclareKeyword)],
+                  ts.createVariableDeclarationList(
+                    [
+                      ts.createVariableDeclaration(
+                        ts.createIdentifier(rootType.name),
+                        ts.createTypeReferenceNode(ts.createIdentifier(rootType.name), undefined),
+                        undefined,
+                      ),
+                    ],
+                    undefined,
+                  ),
                 ),
-              ),
-            )
+              )
+            }
           }
         }
         break
@@ -164,37 +171,70 @@ function createIterableMethods(name: string, keyType: ts.TypeNode, valueType: ts
   ]
 }
 
-function convertInterface(idl: webidl2.InterfaceType | webidl2.DictionaryType | webidl2.InterfaceMixinType, options?: Options) {
+async function convertChildren(childName: string, options?: Options) {
+  if (childName) {
+    logger.debug('get childName', childName)
+
+    return new Promise((resolve) => {
+      fs.access(`./idl/${childName}.webidl`, (res) => {
+        console.log(res)
+        if (!res) {
+          const header = convertMap.get(options.name)
+
+          if (options && header && childName !== options.name && !isIncludesImportOrExport(header, childName)) {
+            const importStr = getImports([childName])
+            console.log('importStr', importStr)
+            convertMap.set(options.name, header.concat('\n').concat(importStr))
+          }
+          convert({
+            input: `./idl/${childName}.webidl`,
+            output: `./ts/${childName}.ts`,
+            name: childName,
+            emscripten: false,
+            defaultExport: false,
+            module: 'Module',
+          })
+        }
+        resolve()
+      })
+    })
+  }
+}
+
+async function convertInterface(idl: webidl2.InterfaceType | webidl2.DictionaryType | webidl2.InterfaceMixinType, options?: Options) {
   const members: ts.TypeElement[] = []
+  const needConvertedChildren: string[] = []
   const inheritance = []
   if ('inheritance' in idl && idl.inheritance) {
     inheritance.push(ts.createExpressionWithTypeArguments(undefined, ts.createIdentifier(idl.inheritance)))
+    await convertChildren(idl.inheritance, options)
   }
 
-  idl.members.forEach((member: webidl2.IDLInterfaceMemberType | webidl2.FieldType) => {
+  idl.members.forEach(async (member: webidl2.IDLInterfaceMemberType | webidl2.FieldType) => {
+    let convertResult: ts.PropertySignature | ts.MethodSignature | ts.ConstructSignatureDeclaration
     switch (member.type) {
       case 'attribute':
         if (options?.emscripten) {
           members.push(createAttributeGetter(member))
           members.push(createAttributeSetter(member))
         }
-        members.push(convertMemberAttribute(member))
+        convertResult = convertMemberAttribute(member)
         break
       case 'operation':
         if (member.name === idl.name) {
-          members.push(convertMemberConstructor(member, options))
+          convertResult = convertMemberConstructor(member, options)
         } else {
-          members.push(convertMemberOperation(member))
+          convertResult = convertMemberOperation(member)
         }
         break
       case 'constructor':
-        members.push(convertMemberConstructor(member, options))
+        convertResult = convertMemberConstructor(member, options)
         break
       case 'field':
-        members.push(convertMemberField(member))
+        convertResult = convertMemberField(member)
         break
       case 'const':
-        members.push(convertMemberConst(member))
+        convertResult = convertMemberConst(member)
         break
       case 'iterable': {
         type Members = Array<webidl2.IDLInterfaceMemberType | webidl2.FieldType | webidl2.IDLInterfaceMixinMemberType>
@@ -214,7 +254,24 @@ function convertInterface(idl: webidl2.InterfaceType | webidl2.DictionaryType | 
         console.log(newUnsupportedError('Unsupported IDL member', member))
         break
     }
+
+    if (convertResult) {
+      members.push(convertResult)
+
+      if (member['idlType']) {
+        const childNames = getKeys(member, 'idlType')
+        console.log(childNames)
+        console.log(member['idlType']['idlType'][0]['idlType'])
+        needConvertedChildren.push(...childNames)
+      } else if (member['arguments']) {
+        member['arguments'].forEach((arg) => {
+          const childName = arg.idlType.idlType
+          childName && needConvertedChildren.push(childName)
+        })
+      }
+    }
   })
+  await Promise.all(needConvertedChildren.map((convert) => convertChildren(convert, options)))
 
   if (options?.emscripten) {
     return ts.createClassDeclaration(

@@ -36,16 +36,33 @@ var __generator = (this && this.__generator) || function (thisArg, body) {
     }
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.fetchIDL = void 0;
+exports.fetchIDL = exports.findFileNames = exports.isDirectoryUrl = void 0;
 var https = require("https");
 var fs = require("fs");
 var jsdom_1 = require("jsdom");
+var path = require("path");
 var idlSelector = [
     'pre.idl:not(.extract):not(.example)',
     'pre.code code.idl-code',
     'pre:not(.extract) code.idl',
     '#permission-registry + pre.highlight',
 ].join(',');
+function isDirectoryUrl(url) {
+    return url.endsWith('/');
+}
+exports.isDirectoryUrl = isDirectoryUrl;
+function findFileNames(directory) {
+    var files = [];
+    fs.readdirSync(directory).forEach(function (file) {
+        var filePath = path.join(directory, file);
+        var stats = fs.statSync(filePath);
+        if (stats.isFile()) {
+            files.push(path.basename(filePath, path.extname(filePath)));
+        }
+    });
+    return files;
+}
+exports.findFileNames = findFileNames;
 function fetchIDL(uri) {
     return __awaiter(this, void 0, void 0, function () {
         var result;
@@ -60,7 +77,7 @@ function fetchIDL(uri) {
                     result = _a.sent();
                     _a.label = 3;
                 case 3:
-                    if (uri.match(/\.w?idl$/)) {
+                    if (uri.match(/\.(web)?idl$/)) {
                         return [2 /*return*/, result];
                     }
                     return [2 /*return*/, extractIDL(jsdom_1.JSDOM.fragment(result))];

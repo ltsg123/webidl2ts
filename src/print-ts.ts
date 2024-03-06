@@ -1,9 +1,15 @@
 import * as ts from 'typescript'
+import { getExports } from './ts-helper'
 
 export function printTs(nodes: ts.Statement[]): string {
   const file = ts.createSourceFile(`index.d.ts`, '', ts.ScriptTarget.Latest, false, ts.ScriptKind.TS)
   const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed })
-  return nodes.map((it) => printer.printNode(ts.EmitHint.Unspecified, it, file)).join('\n')
+  let tsString = nodes.map((it) => printer.printNode(ts.EmitHint.Unspecified, it, file)).join('\n')
+  // add exports
+  const exportedString = getExports(nodes.map((node) => node?.['name']?.['escapedText']))
+  exportedString && (tsString = tsString.concat('\n\n').concat(exportedString))
+
+  return tsString
 }
 
 export function printEmscriptenModule(moduleName: string, nodes: ts.Statement[], defaultExport: boolean): string {
